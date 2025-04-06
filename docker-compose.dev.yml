@@ -1,0 +1,79 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "5050:5050"
+    volumes:
+      - ./backend:/app
+    environment:
+      - FLASK_APP=wsgi.py
+      - FLASK_ENV=development
+      - FLASK_DEBUG=1
+      - MONGODB_URI=mongodb://mongo:27017/interimapp
+      - JWT_SECRET_KEY=dev_secret_key_change_in_production
+      - CORS_ORIGINS=http://localhost:3000
+    depends_on:
+      - mongo
+    networks:
+      - app-network
+    # Use gunicorn for better performance in development
+    command: >
+      sh -c "flask run --host=0.0.0.0 --port=5050"
+    # Add healthcheck to make sure the backend is ready before frontend starts
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5050/api/jobs"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      # Exclude node_modules from volume mount to avoid overwriting the modules
+      # installed in the container with host's modules (or lack thereof)
+      - /app/node_modules
+    environment:
+      - REACT_APP_API_URL=http://localhost:5050/api
+      - NODE_ENV=development
+      - CHOKIDAR_USEPOLLING=true # For hot reloading to work properly in Docker
+      # Add this to prevent permission issues with the node_modules cache
+      - SKIP_PREFLIGHT_CHECK=true 
+      - WDS_SOCKET_HOST=127.0.0.1 # Needed for hot reload to work in Docker
+    user: "node"
+    networks:
+      - app-network
+    depends_on:
+      - backend
+
+  mongo:
+    image: mongo:6.0
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - app-network
+
+  mongo-express:
+    image: mongo-express
+    restart: always
+    ports:
+      - "8081:8081"
+    environment:
+      - ME_CONFIG_MONGODB_SERVER=mongo
+      - ME_CONFIG_MONGODB_PORT=27017
+    depends_on:
+      - mongo
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  mongo-data:
